@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "irx-dfir"
+version = "0.1.0"
+description = "Local case and evidence management for incident response investigations"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+  "typer>=0.12,<1.0",
+  "rich>=13.7,<15.0",
+  "pydantic>=2.6,<3.0",
+  "jinja2>=3.1,<4.0",
+  "evtx==0.13.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0,<9.0", "ruff>=0.5,<1.0"]
+
+[project.scripts]
+irx = "irx.cli.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
