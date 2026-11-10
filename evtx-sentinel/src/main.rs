@@ -102,7 +102,7 @@ fn main() {
             println!("{} PARSE mode activated on: {:?} (Threads: {}) \n", "[*]".blue(), input, threads);
             parser::process_evtx(input, event_id, filter.as_deref(), false, *verbose, output.as_ref());
         }
-        Commands::Timeline { input, output, verbose } => {
+        Commands::Timeline { input, output: _output, verbose: _verbose } => {
             println!("{} TIMELINE mode activated on: {:?} \n", "[*]".blue(), input);
             // Lógica de línea temporal unificada
         }
