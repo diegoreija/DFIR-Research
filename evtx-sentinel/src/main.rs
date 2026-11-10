@@ -9,7 +9,9 @@ use std::path::PathBuf;
 #[command(
     name = "evtx-sentinel",
     version = "2.4.0",
-    about = "Kali Linux Advanced DFIR & Threat Hunting Engine para archivos .evtx"
+    author = "Reija",
+    about = "Kali Linux Advanced DFIR & Threat Hunting Engine for .evtx files",
+    long_about = "EVTX-Sentinel is a high-performance offline forensics and threat hunting utility designed to parse Windows Event Logs, correlate anomalies, and detect adversary techniques."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -18,47 +20,47 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Busca automáticamente patrones de ataques (Malware, Timestomping, Conexiones)
+    /// Automatically hunt for attack patterns (Malware, Timestomping, Network IOCs)
     Hunt {
-        /// Ruta al archivo .evtx
+        /// Path to the .evtx file or directory containing evidences
         #[arg(short, long)]
         input: PathBuf,
 
-        /// Filtrar por Event IDs separados por coma (ej. 1,2,3,11)
+        /// Filter by Event IDs separated by commas (e.g., 1,2,3,11)
         #[arg(short, long, value_delimiter = ',')]
         event_id: Vec<u64>,
 
-        /// Filtrar por palabra clave
+        /// Filter records by keyword
         #[arg(short, long)]
         filter: Option<String>,
 
-        /// Exportar resultados a JSON
+        /// Export results to a structured JSON report
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Nivel de verbosidad (-v, -vv, -vvv)
+        /// Verbosity level (-v, -vv, -vvv for deep forensic debugging)
         #[arg(short, long, action = clap::ArgAction::Count)]
         verbose: u8,
     },
-    /// Extrae y lista eventos según filtros exactos
+    /// Extract and list raw events based on precise filters
     Parse {
-        /// Ruta al archivo .evtx
+        /// Path to the .evtx file or directory containing evidences
         #[arg(short, long)]
         input: PathBuf,
 
-        /// Filtrar por Event IDs separados por coma
+        /// Filter by Event IDs separated by commas
         #[arg(short, long, value_delimiter = ',')]
         event_id: Vec<u64>,
 
-        /// Filtrar por palabra clave
+        /// Filter records by keyword
         #[arg(short, long)]
         filter: Option<String>,
 
-        /// Exportar resultados a JSON
+        /// Export results to a structured JSON report
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Nivel de verbosidad
+        /// Verbosity level (-v, -vv, -vvv)
         #[arg(short, long, action = clap::ArgAction::Count)]
         verbose: u8,
     },
@@ -71,11 +73,11 @@ fn main() {
 
     match &cli.command {
         Commands::Hunt { input, event_id, filter, output, verbose } => {
-            println!("{} Modo HUNT activado sobre: {:?}\n", "[*]".blue(), input);
+            println!("{} HUNT mode activated on: {:?}\n", "[*]".blue(), input);
             parser::process_evtx(input, event_id, filter.as_deref(), true, *verbose, output.as_ref());
         }
         Commands::Parse { input, event_id, filter, output, verbose } => {
-            println!("{} Modo PARSE activado sobre: {:?}\n", "[*]".blue(), input);
+            println!("{} PARSE mode activated on: {:?}\n", "[*]".blue(), input);
             parser::process_evtx(input, event_id, filter.as_deref(), false, *verbose, output.as_ref());
         }
     }
