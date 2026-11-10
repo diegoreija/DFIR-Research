@@ -10,8 +10,25 @@ use std::path::PathBuf;
     name = "evtx-sentinel",
     version = "2.4.0",
     author = "Reija",
-    about = "Kali Linux Advanced DFIR & Threat Hunting Engine for .evtx files",
-    long_about = "EVTX-Sentinel is a high-performance offline forensics and threat hunting utility designed to parse Windows Event Logs, correlate anomalies, and detect adversary techniques."
+    about = "Kali Linux Advanced DFIR & Threat Hunting Engine",
+    long_about = "Designed for offline forensic analysis of Windows event logs (.evtx) and advanced threat hunting.",
+    help_template = "\
+{bin} v{version} [{about}]
+{long-about}
+
+USAGE:
+    {usage}
+
+COMMANDS PRINCIPALES:
+{subcommands}
+
+OPCIONES GENERALES:
+{all-args}
+
+EJEMPLOS DE USO:
+    evtx-sentinel hunt -i ./Sysmon.evtx -e 1,11 -vvv
+    evtx-sentinel parse -i ./unit42/ --filter \"powershell.exe\" --output ./result.json
+"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -20,21 +37,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Automatically hunt for attack patterns (Malware, Timestomping, Network IOCs)
-    Hunt {
+    /// Extract and list all events from the analyzed file based on filters.
+    Parse {
         /// Path to the .evtx file or directory containing evidences
         #[arg(short, long)]
         input: PathBuf,
 
-        /// Filter by Event IDs separated by commas (e.g., 1,3,11,22)
+        /// Filter by specific Event ID (e.g. 1, 3, 11, 22)
         #[arg(short, long, value_delimiter = ',')]
         event_id: Vec<u64>,
 
-        /// Filter records by keyword
+        /// Filter by keyword in command line or file path
         #[arg(short, long)]
         filter: Option<String>,
 
-        /// Export results to a structured JSON report
+        /// Export results report in JSON or CSV format
         #[arg(short, long)]
         output: Option<PathBuf>,
 
@@ -42,47 +59,51 @@ enum Commands {
         #[arg(short, long, default_value_t = 4)]
         threads: usize,
 
-        /// Verbosity level (-v, -vv, -vvv for deep forensic debugging)
+        /// Verbosity level (-v, -vv, -vvv for forensic debugging)
         #[arg(short, long, action = clap::ArgAction::Count)]
         verbose: u8,
     },
-    /// Extract and list raw events based on precise filters
-    Parse {
+    /// Automatically hunt for known attack patterns (e.g., Backdoors, Timestomping, RCE)
+    Hunt {
         /// Path to the .evtx file or directory containing evidences
         #[arg(short, long)]
         input: PathBuf,
 
-        /// Filter by Event IDs separated by commas
+        /// Filter by specific Event ID
         #[arg(short, long, value_delimiter = ',')]
         event_id: Vec<u64>,
 
-        /// Filter records by keyword
+        /// Filter by keyword
         #[arg(short, long)]
         filter: Option<String>,
 
-        /// Export results to a structured JSON report
+        /// Export results report in JSON or CSV format
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Number of concurrent threads
+        /// Number of concurrent threads for massive processing (default: 4)
         #[arg(short, long, default_value_t = 4)]
         threads: usize,
 
-        /// Verbosity level (-v, -vv, -vvv)
+        /// Query suspicious hashes against heuristics or local simulation
+        #[arg(short, long)]
+        search_vt: bool,
+
+        /// Verbosity level (-v, -vv, -vvv for forensic debugging)
         #[arg(short, long, action = clap::ArgAction::Count)]
         verbose: u8,
     },
-    /// Generate a unified chronological timeline exportable
+    /// Generate a unified exportable chronological timeline
     Timeline {
         /// Path to the .evtx file or directory containing evidences
         #[arg(short, long)]
         input: PathBuf,
 
-        /// Export results to a structured JSON or CSV report
+        /// Export results report in JSON or CSV format
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Verbosity level (-v, -vv, -vvv)
+        /// Verbosity level (-v, -vv, -vvv for forensic debugging)
         #[arg(short, long, action = clap::ArgAction::Count)]
         verbose: u8,
     },
@@ -94,8 +115,8 @@ fn main() {
     println!("{}", "=== EVTX-SENTINEL v2.4.0 // Kali DFIR Engine ===".cyan().bold());
 
     match &cli.command {
-        Commands::Hunt { input, event_id, filter, output, threads, verbose } => {
-            println!("{} HUNT mode activated on: {:?} (Threads: {}) \n", "[*]".blue(), input, threads);
+        Commands::Hunt { input, event_id, filter, output, threads, search_vt, verbose } => {
+            println!("{} HUNT mode activated on: {:?} (Threads: {}, VT: {}) \n", "[*]".blue(), input, threads, search_vt);
             parser::process_evtx(input, event_id, filter.as_deref(), true, *verbose, output.as_ref());
         }
         Commands::Parse { input, event_id, filter, output, threads, verbose } => {
@@ -104,7 +125,6 @@ fn main() {
         }
         Commands::Timeline { input, output: _output, verbose: _verbose } => {
             println!("{} TIMELINE mode activated on: {:?} \n", "[*]".blue(), input);
-            // Lógica de línea temporal unificada
         }
     }
 }
