@@ -1,7 +1,6 @@
 mod hunter;
 mod parser;
 
-use clap::{Parser, Subcommand};
 use colored::*;
 use std::path::PathBuf;
 
@@ -33,79 +32,110 @@ EJEMPLOS DE USO:
     evtx-sentinel parse -i ./unit42/ --filter "powershell.exe" --output ./resultado.json
 "#;
 
-#[derive(Parser)]
-#[command(name = "evtx-sentinel", version = "2.4.0", author = "Reija", disable_help_flag = true)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Commands>,
-
-    #[arg(short, long)]
-    help: bool,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    Parse {
-        #[arg(short, long)]
-        input: PathBuf,
-        #[arg(short, long, value_delimiter = ',')]
-        event_id: Vec<u64>,
-        #[arg(short, long)]
-        filter: Option<String>,
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        #[arg(short, long, default_value_t = 4)]
-        threads: usize,
-        #[arg(short, long, action = clap::ArgAction::Count)]
-        verbose: u8,
-    },
-    Hunt {
-        #[arg(short, long)]
-        input: PathBuf,
-        #[arg(short, long, value_delimiter = ',')]
-        event_id: Vec<u64>,
-        #[arg(short, long)]
-        filter: Option<String>,
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        #[arg(short, long, default_value_t = 4)]
-        threads: usize,
-        #[arg(short, long)]
-        search_vt: bool,
-        #[arg(short, long, action = clap::ArgAction::Count)]
-        verbose: u8,
-    },
-    Timeline {
-        #[arg(short, long)]
-        input: PathBuf,
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        #[arg(short, long, action = clap::ArgAction::Count)]
-        verbose: u8,
-    },
-}
-
 fn main() {
-    let cli = Cli::parse();
+    let args: Vec<String> = std::env::args().collect();
 
-    if cli.help || cli.command.is_none() {
+    // Interceptamos la ayuda de forma nativa para que imprima exactamente tu texto plano
+    if args.len() == 1 || args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print!("{}", HELP_MESSAGE);
+        return;
+    }
+
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        println!("evtx-sentinel v2.4.0");
+        return;
+    }
+
+    // Extracción limpia de parámetros para el motor de la herramienta
+    let mut command = "";
+    let mut input_path = None;
+    let mut event_ids = vec![];
+    let mut filter_text = None;
+    let mut output_path = None;
+    let mut threads = 4;
+    let mut search_vt = false;
+    let mut verbose = 0;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "hunt" | "parse" | "timeline" => {
+                command = &args[i];
+            }
+            "-i" | "--input" => {
+                if i + 1 < args.len() {
+                    input_path = Some(PathBuf::from(&args[i + 1]));
+                    i += 1;
+                }
+            }
+            "-e" | "--event-id" => {
+                if i + 1 < args.len() {
+                    event_ids = args[i + 1]
+                        .split(',')
+                        .filter_map(|s| s.trim().parse::<u64>().ok())
+                        .collect();
+                    i += 1;
+                }
+            }
+            "-f" | "--filter" => {
+                if i + 1 < args.len() {
+                    filter_text = Some(args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            "-o" | "--output" => {
+                if i + 1 < args.len() {
+                    output_path = Some(PathBuf::from(&args[i + 1]));
+                    i += 1;
+                }
+            }
+            "-t" | "--threads" => {
+                if i + 1 < args.len() {
+                    threads = args[i + 1].parse().unwrap_or(4);
+                    i += 1;
+                }
+            }
+            "-s" | "--search-vt" => {
+                search_vt = true;
+            }
+            other => {
+                if other.starts_with("-v") {
+                    verbose += other.chars().filter(|&c| c == 'v').count() as u8;
+                }
+            }
+        }
+        i += 1;
+    }
+
+    if command.is_empty() {
         print!("{}", HELP_MESSAGE);
         return;
     }
 
     println!("{}", "=== EVTX-SENTINEL v2.4.0 // Kali DFIR Engine ===".cyan().bold());
 
-    match cli.command.unwrap() {
-        Commands::Hunt { input, event_id, filter, output, threads, search_vt, verbose } => {
+    let input = match input_path {
+        Some(p) => p,
+        None => {
+            println!("{}", "[!] Error: Missing input path. Use -i <path>".red());
+            return;
+        }
+    };
+
+    match command {
+        "hunt" => {
             println!("{} HUNT mode activated on: {:?} (Threads: {}, VT: {}) \n", "[*]".blue(), input, threads, search_vt);
-            parser::process_evtx(&input, &event_id, filter.as_deref(), true, verbose, output.as_ref());
+            parser::process_evtx(&input, &event_ids, filter_text.as_deref(), true, verbose, output_path.as_ref());
         }
-        Commands::Parse { input, event_id, filter, output, threads, verbose } => {
+        "parse" => {
             println!("{} PARSE mode activated on: {:?} (Threads: {}) \n", "[*]".blue(), input, threads);
-            parser::process_evtx(&input, &event_id, filter.as_deref(), false, verbose, output.as_ref());
+            parser::process_evtx(&input, &event_ids, filter_text.as_deref(), false, verbose, output_path.as_ref());
         }
-        Commands::Timeline { input, output: _output, verbose: _verbose } => {
+        "timeline" => {
             println!("{} TIMELINE mode activated on: {:?} \n", "[*]".blue(), input);
+        }
+        _ => {
+            print!("{}", HELP_MESSAGE);
         }
     }
 }
