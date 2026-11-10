@@ -26,7 +26,7 @@ enum Commands {
         #[arg(short, long)]
         input: PathBuf,
 
-        /// Filter by Event IDs separated by commas (e.g., 1,2,3,11)
+        /// Filter by Event IDs separated by commas (e.g., 1,3,11,22)
         #[arg(short, long, value_delimiter = ',')]
         event_id: Vec<u64>,
 
@@ -37,6 +37,10 @@ enum Commands {
         /// Export results to a structured JSON report
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Number of concurrent threads for massive processing (default: 4)
+        #[arg(short, long, default_value_t = 4)]
+        threads: usize,
 
         /// Verbosity level (-v, -vv, -vvv for deep forensic debugging)
         #[arg(short, long, action = clap::ArgAction::Count)]
@@ -60,6 +64,24 @@ enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
 
+        /// Number of concurrent threads
+        #[arg(short, long, default_value_t = 4)]
+        threads: usize,
+
+        /// Verbosity level (-v, -vv, -vvv)
+        #[arg(short, long, action = clap::ArgAction::Count)]
+        verbose: u8,
+    },
+    /// Generate a unified chronological timeline exportable
+    Timeline {
+        /// Path to the .evtx file or directory containing evidences
+        #[arg(short, long)]
+        input: PathBuf,
+
+        /// Export results to a structured JSON or CSV report
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
         /// Verbosity level (-v, -vv, -vvv)
         #[arg(short, long, action = clap::ArgAction::Count)]
         verbose: u8,
@@ -72,13 +94,17 @@ fn main() {
     println!("{}", "=== EVTX-SENTINEL v2.4.0 // Kali DFIR Engine ===".cyan().bold());
 
     match &cli.command {
-        Commands::Hunt { input, event_id, filter, output, verbose } => {
-            println!("{} HUNT mode activated on: {:?}\n", "[*]".blue(), input);
+        Commands::Hunt { input, event_id, filter, output, threads, verbose } => {
+            println!("{} HUNT mode activated on: {:?} (Threads: {}) \n", "[*]".blue(), input, threads);
             parser::process_evtx(input, event_id, filter.as_deref(), true, *verbose, output.as_ref());
         }
-        Commands::Parse { input, event_id, filter, output, verbose } => {
-            println!("{} PARSE mode activated on: {:?}\n", "[*]".blue(), input);
+        Commands::Parse { input, event_id, filter, output, threads, verbose } => {
+            println!("{} PARSE mode activated on: {:?} (Threads: {}) \n", "[*]".blue(), input, threads);
             parser::process_evtx(input, event_id, filter.as_deref(), false, *verbose, output.as_ref());
+        }
+        Commands::Timeline { input, output, verbose } => {
+            println!("{} TIMELINE mode activated on: {:?} \n", "[*]".blue(), input);
+            // Lógica de línea temporal unificada
         }
     }
 }
