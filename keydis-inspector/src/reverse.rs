@@ -213,3 +213,68 @@ mod tests{
         assert!(disasm(b"test",None,5).is_err());
     }
 }
+
+#[cfg(test)]
+mod fixture_tests {
+    use super::*;
+    fn put_u16(b:&mut [u8],i:usize,v:u16){b[i..i+2].copy_from_slice(&v.to_le_bytes());}
+    fn put_u32(b:&mut [u8],i:usize,v:u32){b[i..i+4].copy_from_slice(&v.to_le_bytes());}
+    fn put_u64(b:&mut [u8],i:usize,v:u64){b[i..i+8].copy_from_slice(&v.to_le_bytes());}
+    /// Synthetic non-executable PE fixture. It is never run as a program.
+    fn fixture()->Vec<u8>{
+        let mut b=vec![0u8;0x400];
+        b[0..2].copy_from_slice(b"MZ");
+        put_u32(&mut b,0x3c,0x80);
+        b[0x80..0x84].copy_from_slice(b"PE\0\0");
+        put_u16(&mut b,0x84,0x8664); // AMD64
+        put_u16(&mut b,0x86,1); // one section
+        put_u16(&mut b,0x94,0xF0); // 64-bit optional header length
+        put_u16(&mut b,0x96,0x22); // executable image
+        let opt=0x98;
+        put_u16(&mut b,opt,0x20b);
+        put_u32(&mut b,opt+0x10,0x1000);
+        put_u32(&mut b,opt+0x14,0x1000);
+        put_u64(&mut b,opt+0x18,0x140000000);
+        put_u32(&mut b,opt+0x20,0x1000);
+        put_u32(&mut b,opt+0x24,0x200);
+        put_u32(&mut b,opt+0x38,0x2000);
+        put_u32(&mut b,opt+0x3c,0x200);
+        put_u16(&mut b,opt+0x44,3);
+        put_u32(&mut b,opt+0x6c,16);
+        let sec=0x188;
+        b[sec..sec+5].copy_from_slice(b".text");
+        put_u32(&mut b,sec+8,0x200);
+        put_u32(&mut b,sec+12,0x1000);
+        put_u32(&mut b,sec+16,0x200);
+        put_u32(&mut b,sec+20,0x200);
+        put_u32(&mut b,sec+36,0x60000020);
+        b[0x200..0x400].fill(0x90); // NOP-filled code section
+        b[0x200..0x20A].copy_from_slice(&[0xB8,0x14,0,0,0, 0xE8,0x05,0,0,0]);
+        b[0x20F]=0xC3; // RET at target 0x100F
+        b
+    }
+    #[test] fn pe_rva_maps_to_raw(){
+        let b=fixture();let p=pe(&b).unwrap();
+        assert_eq!(raw_at_rva(&p,&b,0x1000,true),Some((0x200,0x200)));
+        assert!(raw_at_rva(&p,&b,0x9000,true).is_none());
+    }
+    #[test] fn disassembly_reports_real_offsets(){
+        let b=fixture();let d=disasm(&b,None,2).unwrap();
+        assert_eq!(d["evidence"].as_array().unwrap().len(),2);
+        assert_eq!(d["evidence"][0]["file_offset"],"0x200");
+        assert_eq!(d["evidence"][1]["rva"],"0x1005");
+    }
+    #[test] fn constant_lookup_is_bound_to_instructions(){
+        let r=constants(&fixture(),Some(0x14),None,10).unwrap();
+        assert_eq!(r["candidate_matches"],1);
+        assert_eq!(r["matches"][0]["evidence"]["rva"],"0x1000");
+    }
+    #[test] fn functions_and_xrefs_find_direct_calls(){
+        let b=fixture();
+        let f=function_candidates(&b,10).unwrap();
+        assert!(f["total_candidates"].as_u64().unwrap()>=2);
+        let x=xrefs(&b,Some(0x100F),None,10).unwrap();
+        assert_eq!(x["candidate_matches"],1);
+        assert_eq!(x["references"][0]["evidence"]["rva"],"0x1005");
+    }
+}
