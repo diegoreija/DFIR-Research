@@ -19,3 +19,10 @@ jobs:
         run: cargo test --all-targets
       - name: Build release binary
         run: cargo build --release
+      - name: Smoke test command line
+        run: |
+          ./target/release/keydis-inspector --help
+          ./target/release/keydis-inspector disasm --help
+          ./target/release/keydis-inspector xref --help
+          ./target/release/keydis-inspector api-hash --help
+          ./target/release/keydis-inspector hash --input Cargo.toml --algorithm sha256
