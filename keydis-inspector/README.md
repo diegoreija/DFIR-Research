@@ -174,6 +174,60 @@ Ejemplo de consulta selectiva:
 keydis-inspector strings --input sample.exe --contains http --limit 5
 ```
 
+## Análisis generalista: flujo y capacidades
+
+El punto de entrada recomendado es:
+
+```bash
+keydis-inspector analyze --input suspicious.exe
+keydis-inspector report --input suspicious.exe --output evidence.json
+```
+
+`analyze` reúne metadatos, evidencia de compilador, posibles configuraciones y capacidades observadas. **No ejecuta el fichero**.
+
+### Flujo de control, llamadas y argumentos
+
+```bash
+keydis-inspector trace --input suspicious.exe --max-insns 3000 --max-blocks 300
+keydis-inspector trace --input suspicious.exe --rva 0x1400 \
+  --max-insns 5000 --max-blocks 400
+```
+
+`trace` recorre saltos directos y ramas condicionales, registra llamadas y operaciones sobre registros, argumentos candidatos de APIs en x64 y pushes en x86, comparaciones y escrituras en memoria. El análisis es **estático, acotado e intraprocedimental**: no representa todas las rutas de ejecución ni reconstruye datos cifrados arbitrarios.
+
+### Capacidades generales del ejecutable
+
+```bash
+keydis-inspector capabilities --input suspicious.exe --max-functions 100
+```
+
+Busca llamadas importadas identificables en funciones candidatas y las clasifica como indicios de captura de teclado, red, cifrado, persistencia, clipboard, antidebugging, etc. Las hipótesis de comportamiento no equivalen a una confirmación de ejecución ni de intención maliciosa.
+
+### Recuperar indicadores ofuscados
+
+```bash
+keydis-inspector decode-config --input suspicious.exe
+```
+
+Busca indicadores decodificables de Base64, Base64URL, hexadecimal y URLs protegidas con XOR de un byte, con offsets y hashes del contenido recuperado. Los posibles tokens permanecen ocultos por defecto. Para una investigación autorizada local:
+
+```bash
+keydis-inspector decode-config --input suspicious.exe --show-secrets
+```
+
+No es un descifrador universal de AES, RC4 ni algoritmos personalizados; esos casos requieren recuperar y analizar las rutinas y las claves.
+
+### Compilador y alcance del perfil de laboratorio
+
+```bash
+keydis-inspector compiler --input suspicious.exe
+```
+
+Examina Rich Header y firmas indicativas de toolchains. La atribución de compilador permanece inconclusa cuando falta evidencia suficiente.
+
+El comando `tasks` sigue disponible como **hoja opcional de 19 preguntas** relacionada con el caso de entrenamiento original. No forma parte del clasificador general; para investigar otras muestras utiliza los motores genéricos de la CLI. Ninguna pregunta se marca como verificada sin evidencia suficiente.
+
+
 ## Ingeniería inversa de ejecutables PE
 
 Los comandos de esta sección **leen el archivo, no lo ejecutan**. Admiten ejecutables PE x86 y x64.
