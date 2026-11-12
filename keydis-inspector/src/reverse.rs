@@ -174,19 +174,74 @@ pub fn constants(bytes:&[u8],value:Option<u64>,mnemonic:Option<&str>,limit:usize
        "limitations":"Raw decoded operands; memory displacement may be absolute or relative; XOR is not necessarily encryption"}))
 }
 
+/// Parse the XOR-obfuscated Rich header between DOS stub and PE signature.
+fn rich_header(bytes:&[u8])->Option<Value>{
+    if bytes.len()<0x44{return None}
+    let pe_off=u32::from_le_bytes(bytes[0x3C..0x40].try_into().ok()?)as usize;
+    if pe_off>bytes.len()||pe_off<0x48{return None}
+    let range=&bytes[0x40..pe_off];
+    for pos in (0..range.len().saturating_sub(8)).step_by(4){
+        if &range[pos..pos+4]!=b"Rich"{continue}
+        let key=u32::from_le_bytes(range[pos+4..pos+8].try_into().ok()?);
+        let dans=u32::from_le_bytes(*b"DanS")^key;
+        let mut begin=None;
+        for j in (0..pos).step_by(4){
+            if u32::from_le_bytes(range[j..j+4].try_into().ok()?)==dans{
+                begin=Some(j);break
+            }
+        }
+        let begin=begin?;
+        if begin+16>pos||(pos-begin)%8!=0{return None}
+        let mut records=Vec::new();
+        let mut index=begin+16;
+        while index+7<pos && records.len()<128 {
+            let id=u32::from_le_bytes(range[index..index+4].try_into().ok()?)^key;
+            let count=u32::from_le_bytes(range[index+4..index+8].try_into().ok()?)^key;
+            records.push(json!({"product_id":id>>16,"build":id&0xFFFF,
+                "object_count":count}));
+            index+=8;
+        }
+        return Some(json!({"file_offset":format!("0x{:X}",begin+0x40),
+            "rich_signature_offset":format!("0x{:X}",pos+0x40),
+            "xor_key":format!("0x{key:08X}"),
+            "toolchain_records":records,
+            "interpretation":"Rich structure consistent with Microsoft linker toolchain; product IDs require external mapping for exact versions",
+            "validation":"DanS marker structurally verified; Rich checksum not independently validated"}));
+    }
+    None
+}
 pub fn compiler(bytes:&[u8])->Result<Value,String>{
     let p=pe(bytes)?;
-    let e_lfanew=if bytes.len()>=0x40{u32::from_le_bytes(bytes[0x3C..0x40].try_into().unwrap()) as usize}else{0};
-    let dos_end=e_lfanew.min(bytes.len());
-    let has_rich=dos_end>0x40 && bytes[0x40..dos_end].windows(4).any(|x|x==b"Rich");
-    let import_dlls:Vec<String>=p.imports.iter().map(|i|i.dll.to_ascii_lowercase()).collect();
-    let msvc_runtime=import_dlls.iter().any(|s|s.contains("vcruntime")||s.contains("msvcp"));
-    let mut observations=Vec::new();
-    if has_rich{observations.push("Rich signature in DOS stub (suggests Microsoft linker toolchain)");}
-    if msvc_runtime{observations.push("MSVC runtime DLL import (does not prove compiler identity)");}
-    if bytes.windows(12).any(|s|s==b"Go build ID:"){observations.push("Go build ID marker");}
-    Ok(json!({"compiler":"INCONCLUSIVE","observations":observations,
-      "note":"Metadata heuristics only; compiler attribution needs multiple corroborating artifacts"}))
+    let rich=rich_header(bytes);
+    let dlls:Vec<String>=p.imports.iter().map(|i|i.dll.to_ascii_lowercase()).collect();
+    let msvc_runtime=dlls.iter().any(|s|s.contains("vcruntime")||s.contains("msvcp"));
+    let text=crate::intelligence::extract_text(bytes);
+    let go_marker=text.iter().any(|s|s.text.contains("Go build ID:")||s.text.contains("Go buildinf:"));
+    let delphi_marker=text.iter().any(|s|s.text.contains("Embarcadero")||s.text.contains("Borland")||s.text.contains("Delphi"));
+    let rust_marker=text.iter().any(|s|s.text.contains("rustc/")||s.text.contains("rust_begin_unwind"));
+    let mingw_marker=dlls.iter().any(|s|s.contains("libgcc")||s.contains("libstdc++"))
+        ||text.iter().any(|s|s.text.contains("GCC: (GNU)"));
+    let mut signals=Vec::new();
+    if rich.is_some(){signals.push("structural Rich header detected");}
+    if msvc_runtime{signals.push("MSVC runtime imports");}
+    if go_marker{signals.push("Go build metadata string");}
+    if delphi_marker{signals.push("Delphi/Borland/Embarcadero string references");}
+    if rust_marker{signals.push("Rust runtime string references");}
+    if mingw_marker{signals.push("GCC/MinGW runtime or compiler strings");}
+    let candidates=[
+        ("Go",go_marker),("Delphi/Borland",delphi_marker),
+        ("Rust",rust_marker),("GCC/MinGW",mingw_marker),
+        ("Microsoft toolchain",rich.is_some()||msvc_runtime)];
+    let mut found=Vec::new();
+    for (name,present) in candidates{
+        if present{found.push(name);}
+    }
+    let toolchain=if found.len()==1{Some(found[0])}else{None};
+    Ok(json!({"compiler":"INCONCLUSIVE","candidate_toolchain":toolchain,
+        "toolchain_candidates":found,
+        "observations":signals,
+        "rich_header":rich,
+        "note":"These are toolchain fingerprints, not proof of source-language compiler; packers and linkers can change artifacts"}))
 }
 
 #[cfg(test)]
