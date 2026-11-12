@@ -88,6 +88,53 @@ pub fn deep_find(report_file:&Path,query:&str,before:usize,after:usize,limit:usi
         "note":"Decompiler text is heuristic; inspect the associated assembly before accepting conclusions."}))
 }
 
+
+/// Attach relevant decompiled *function references* to an investigation worksheet.
+/// Keyword hits never become confirmed answers.
+pub fn enrich_worksheet(worksheet:&mut Value,path:&Path)->Result<(),String>{
+    let raw=fs::read(path).map_err(|e|format!("Deep report: {e}"))?;
+    let report:Value=serde_json::from_slice(&raw).map_err(|e|format!("Deep report JSON: {e}"))?;
+    let funcs=report["functions"].as_array().ok_or("Deep report lacks functions")?;
+    let tasks=worksheet["tasks"].as_array_mut().ok_or("Worksheet lacks tasks")?;
+    for task in tasks{
+        let number=task["task"].as_u64().unwrap_or(0);
+        let terms: &[&str]=match number {
+            3=>&["vcruntime","msvc","mingw","gcc","rustc"],
+            4=>&["getprocaddress","winmain","getasynckeystate","setwindowshookex"],
+            5=>&["getprocaddress","getmodulehandle","hash"],
+            6=>&["0x104"],
+            7=>&["0x28331fe9","28331fe9"],
+            8=>&["0x14","vk_capital"],
+            9=>&["xor","extended"],
+            10=>&["tounicodeex","tounicode"],
+            11=>&["getasynckeystate","send","transmit"],
+            12|13=>&["encrypt","crypt","xor","rc4","aes"],
+            14|15=>&["telegram","discord","slack","https","socket","send"],
+            16=>&["token","telegram","bot"],
+            17=>&["decrypt","xor","key"],
+            18=>&["encrypt","crypt","xor","rc4","aes"],
+            19=>&["getasynckeystate","setwindowshookex","tounicode"],
+            _=>&[],
+        };
+        if terms.is_empty(){continue}
+        let mut matches=Vec::new();
+        for func in funcs{
+            let name=func["name"].as_str().unwrap_or("");
+            let code=func["pseudocode"].as_str().unwrap_or("");
+            let lower=format!("{} {}",name,code).to_ascii_lowercase();
+            let observed:Vec<&str>=terms.iter().copied().filter(|term|lower.contains(term)).collect();
+            if !observed.is_empty(){
+                matches.push(json!({"function":name,
+                    "entry_address":func["entry_address"],"matched_terms":observed,
+                    "confidence":"keyword_context_only_not_proof"}));
+                if matches.len()>=15{break}
+            }
+        }
+        task["decompiled_function_candidates"]=json!(matches);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests{
     use super::*;
