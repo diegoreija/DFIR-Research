@@ -32,7 +32,7 @@ enum Command {
     /// Inspect compiler evidence (not inferred from timestamp)
     Compiler { #[command(flatten)] file: Input },
     /// Imported Win32 APIs and name filtering
-    Api { #[command(flatten)] file: Input, #[arg(long)] contains: Option<String>, #[arg(long)] category: Option<String>, #[arg(long, default_value_t=50)] limit: usize },
+    Api { #[command(flatten)] file: Input, #[arg(long)] contains: Option<String>, #[arg(long)] category: Option<String>, #[arg(long, default_value_t=50)] limit: usize, #[arg(long)] show_references: bool },
     /// Read bytes at a FILE offset, not a virtual address
     Offset { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_num)] offset: usize, #[arg(long, default_value_t=32)] length: usize },
     /// Extract printable ASCII and UTF-16LE strings
@@ -41,6 +41,8 @@ enum Command {
     Hex { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_num)] offset: usize, #[arg(long, default_value_t=64)] length: usize },
     /// Candidate URLs, IP addresses and domains from extracted strings
     Ioc { #[command(flatten)] file: Input, #[arg(long, default_value_t=50)] limit: usize },
+    /// Candidate API hash names under user-specified algorithms (not attribution)
+    ApiHash { #[arg(long, value_parser=parse_u64)] hash: u64, #[arg(long)] dictionary: PathBuf, #[arg(long, default_value="all")] algorithm: String, #[arg(long, default_value="original")] case_mode: String },
     /// Inspect keyboard-related imports (not behavioral proof)
     Keylogger { #[command(flatten)] file: Input, #[arg(long)] vk_code: Option<String> },
     /// Report potential crypto-related imports and strings
@@ -187,14 +189,27 @@ fn run(cmd:Command)->Result<(),String>{
         Command::Compiler{file}=>{
             print(&reverse::compiler(&read(&file.input)?)?);
         }
-        Command::Api{file,contains,category,limit}=>{
+        Command::Api{file,contains,category,limit,show_references}=>{
             let p=pe_data(&read(&file.input)?)?;
             let keywords=match category.as_deref(){Some("keyboard")=>vec!["key","hook","unicode"],Some("network")=>vec!["http","internet","socket","connect","send"],Some("crypto")=>vec!["crypt","bcrypt"],Some(x)=>return Err(format!("unknown category: {x}")),None=>vec![]};
             let filtered:Vec<Value>=p["imports"].as_array().unwrap().iter().filter(|v|{
                 let n=v["name"].as_str().unwrap_or("").to_ascii_lowercase();
                 contains.as_ref().is_none_or(|s|n.contains(&s.to_ascii_lowercase()))&&
                 (keywords.is_empty()||keywords.iter().any(|k|n.contains(*k)))
-            }).take(limit).cloned().collect();print(&json!(filtered));
+            }).take(limit).cloned().collect();
+            if show_references {
+                let b=read(&file.input)?;
+                let mut enriched=Vec::new();
+                for api in filtered {
+                    let name=api["name"].as_str().unwrap_or("");
+                    let references=reverse::xrefs(&b,None,Some(name),20).ok();
+                    enriched.push(json!({"import":api,"references":references}));
+                }
+                print(&json!(enriched));
+            } else {print(&json!(filtered));}
+        }
+        Command::ApiHash{hash,dictionary,algorithm,case_mode}=>{
+            print(&reverse::api_hash(hash,&algorithm,&dictionary.to_string_lossy(),&case_mode)?);
         }
         Command::Offset{file,offset,length}|Command::Hex{file,offset,length}=>{
             let b=read(&file.input)?;
@@ -214,11 +229,21 @@ fn run(cmd:Command)->Result<(),String>{
         Command::Keylogger{file,vk_code}=>{
             let b=read(&file.input)?;
             let vk=vk_code.as_deref().map(|v|match v.to_ascii_lowercase().as_str(){"0x14"=> "VK_CAPITAL","0x0d"=>"VK_RETURN","0x1b"=>"VK_ESCAPE",_=>"UNKNOWN"});
-            print(&json!({"vk_lookup":vk,"keyboard_related_imports":imports_matching(&b,&["key","hook","unicode"]),"behavior":"NOT CONFIRMED by imports alone"}));
+            let refs=["GetAsyncKeyState","SetWindowsHookExA","SetWindowsHookExW","ToUnicode","ToUnicodeEx"]
+                .iter().filter_map(|name|reverse::xrefs(&b,None,Some(name),20).ok()
+                    .filter(|r|r["candidate_matches"].as_u64().unwrap_or(0)>0)
+                    .map(|r|json!({"api":name,"xrefs":r}))).collect::<Vec<_>>();
+            let constant_evidence=vk_code.as_ref().and_then(|v|parse_u64(v).ok())
+                .and_then(|value|reverse::constants(&b,Some(value),None,20).ok());
+            print(&json!({"vk_lookup":vk,"keyboard_related_imports":imports_matching(&b,&["key","hook","unicode"]),
+                "code_references":refs,"vk_constant_evidence":constant_evidence,
+                "behavior":"INCONCLUSIVE: imports and references do not prove keyboard capture"}));
         }
         Command::Crypto{file}=>{
             let b=read(&file.input)?;
-            print(&json!({"crypto_related_imports":imports_matching(&b,&["crypt","bcrypt"]),"algorithm":"INCONCLUSIVE","key":"INCONCLUSIVE"}));
+            print(&json!({"crypto_related_imports":imports_matching(&b,&["crypt","bcrypt"]),
+                "xor_instruction_candidates":reverse::constants(&b,None,Some("xor"),30).ok(),
+                "algorithm":"INCONCLUSIVE","key":"INCONCLUSIVE"}));
         }
         Command::Exfil{file}=>{
             let b=read(&file.input)?;
@@ -270,5 +295,26 @@ fn main()->ExitCode{
     match run(Cli::parse().command){
         Ok(())=>ExitCode::SUCCESS,
         Err(e)=>{eprintln!("error: {e}");ExitCode::FAILURE}
+    }
+}
+
+#[cfg(test)]
+mod cli_unit_tests {
+    use super::*;
+    #[test]fn known_hashes() {
+        let result=hashes(b"abc");
+        assert_eq!(result["sha256"],"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(result["md5"],"900150983cd24fb0d6963f7d28e17f72");
+    }
+    #[test]fn extracts_ascii_and_utf16le(){
+        let b=b"prefix\0HTTP\0\x54\x00\x45\x00\x53\x00\x54\x00\0";
+        let got=strings(b,4);
+        assert!(got.iter().any(|(_,s)|s=="HTTP"));
+        assert!(got.iter().any(|(_,s)|s=="TEST"));
+    }
+    #[test]fn hexadecimal_values(){
+        assert_eq!(parse_u64("0x104").unwrap(),260);
+        assert_eq!(parse_num("0X20").unwrap(),32);
+        assert!(parse_u64("not_hex").is_err());
     }
 }
