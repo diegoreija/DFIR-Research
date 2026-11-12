@@ -1,5 +1,6 @@
 mod reverse;
 mod intelligence;
+mod deep;
 
 use clap::{Args, Parser, Subcommand};
 use chrono::{DateTime, TimeZone, Utc};
@@ -69,7 +70,11 @@ enum Command {
     /// Evidence inventory: endpoints, import categories, token candidates and crypto markers
     Intelligence { #[command(flatten)] file: Input, #[arg(long)] show_secrets: bool },
     /// Evidence-backed worksheet of 19 investigation questions
-    Tasks { #[command(flatten)] file: Input, #[arg(long)] task: Option<u8>, #[arg(long)] show_secrets: bool },
+    Tasks { #[command(flatten)] file: Input, #[arg(long)] task: Option<u8>, #[arg(long)] show_secrets: bool, #[arg(long)] deep_report: Option<PathBuf> },
+    /// Optional Ghidra headless decompilation to a structured JSON file
+    Deep { #[command(flatten)] file: Input, #[arg(long)] output: PathBuf, #[arg(long)] analyze_headless: Option<PathBuf>, #[arg(long, default_value_t=120)] max_functions: usize, #[arg(long, default_value_t=180)] analysis_timeout: u64 },
+    /// Search decompiled functions with a grep-like line context
+    DeepFind { #[arg(long)] report: PathBuf, #[arg(long)] contains: String, #[arg(long, default_value_t=2)] before: usize, #[arg(long, default_value_t=3)] after: usize, #[arg(long, default_value_t=20)] limit: usize },
     /// Recover candidate repeating-XOR keys using explicitly supplied known plaintext
     XorCrib { #[command(flatten)] file: Input, #[arg(long)] known: String, #[arg(long, default_value_t=8)] max_keylen: usize, #[arg(long, default_value_t=10)] limit: usize, #[arg(long)] show_secrets: bool },
     /// Decode a file region using a known repeating XOR key, supplied as hexadecimal bytes
@@ -302,8 +307,16 @@ fn run(cmd:Command)->Result<(),String>{
         Command::Intelligence{file,show_secrets}=>{
             print(&intelligence::inventory(&read(&file.input)?,show_secrets)?);
         }
-        Command::Tasks{file,task,show_secrets}=>{
-            print(&intelligence::worksheet(&read(&file.input)?,task,show_secrets)?);
+        Command::Tasks{file,task,show_secrets,deep_report}=>{
+            let mut result=intelligence::worksheet(&read(&file.input)?,task,show_secrets)?;
+            if let Some(path)=deep_report{deep::enrich_worksheet(&mut result,&path)?}
+            print(&result);
+        }
+        Command::Deep{file,output,analyze_headless,max_functions,analysis_timeout}=>{
+            print(&deep::ghidra_analyze(&file.input,&output,analyze_headless.as_deref(),max_functions,analysis_timeout)?);
+        }
+        Command::DeepFind{report,contains,before,after,limit}=>{
+            print(&deep::deep_find(&report,&contains,before,after,limit)?);
         }
         Command::XorCrib{file,known,max_keylen,limit,show_secrets}=>{
             print(&intelligence::xor_crib(&read(&file.input)?,&known,max_keylen,limit,show_secrets)?);
