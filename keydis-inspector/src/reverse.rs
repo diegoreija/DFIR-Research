@@ -65,17 +65,17 @@ pub fn disasm(bytes:&[u8],rva:Option<u64>,count:usize)->Result<Value,String>{
     let start=rva.unwrap_or_else(||entry_rva(&p));
     let (offset,available)=raw_at_rva(&p,bytes,start,true).ok_or("RVA not backed by an executable PE section")?;
     let take=available.min(MAX_SECTION_BYTES);
-    let ip=p.image_base.checked_add(start).ok_or("VA overflow")?;
+    let ip=(p.image_base as u64).checked_add(start).ok_or("VA overflow")?;
     let mut dec=Decoder::with_ip(bitness(&p),&bytes[offset..offset+take],ip,DecoderOptions::NONE);
     let mut rows=Vec::new();
     while dec.can_decode()&&rows.len()<count.min(500){
         let at=offset+dec.position();
         let ins=dec.decode();
         if ins.is_invalid(){break}
-        rows.push(row(&ins,p.image_base,at));
+        rows.push(row(&ins,(p.image_base as u64),at));
     }
     Ok(json!({"starting_rva":format!("0x{start:X}"),
-              "image_base":format!("0x{:X}",p.image_base),
+              "image_base":format!("0x{:X}",(p.image_base as u64)),
               "architecture":bitness(&p),
               "evidence":rows,
               "limitations":"Linear disassembly only; instructions may contain inline data, and no function semantics are inferred"}))
@@ -89,7 +89,7 @@ where F:FnMut(&Instruction,usize)->bool{
         let off=sec.pointer_to_raw_data as usize;
         if off>=bytes.len(){continue}
         let len=(sec.size_of_raw_data as usize).min(MAX_SECTION_BYTES).min(bytes.len()-off);
-        let Some(ip)=p.image_base.checked_add(sec.virtual_address as u64) else{continue};
+        let Some(ip)=(p.image_base as u64).checked_add(sec.virtual_address as u64) else{continue};
         let mut dec=Decoder::with_ip(bitness(p),&bytes[off..off+len],ip,DecoderOptions::NONE);
         while dec.can_decode()&&visited<MAX_SCAN_INSTRUCTIONS{
             let at=off+dec.position();
@@ -108,7 +108,7 @@ pub fn function_candidates(bytes:&[u8],limit:usize)->Result<Value,String>{
     walk_exec(bytes,&p,|ins,_|{
         if ins.flow_control()==FlowControl::Call{
             if let Some(target)=branch_target(ins){
-                if let Some(rva)=target.checked_sub(p.image_base){
+                if let Some(rva)=target.checked_sub((p.image_base as u64)){
                     if raw_at_rva(&p,bytes,rva,true).is_some(){found.insert(rva);}
                 }
             }
@@ -128,11 +128,11 @@ pub fn xrefs(bytes:&[u8],target_rva:Option<u64>,api:Option<&str>,limit:usize)->R
     let p=pe(bytes)?;
     if target_rva.is_none()&&api.is_none(){return Err("Use --target-rva or --api".into())}
     let mut targets=Vec::<(u64,String)>::new();
-    if let Some(rva)=target_rva{targets.push((p.image_base.checked_add(rva).ok_or("VA overflow")?,format!("RVA 0x{rva:X}")));}
+    if let Some(rva)=target_rva{targets.push(((p.image_base as u64).checked_add(rva).ok_or("VA overflow")?,format!("RVA 0x{rva:X}")));}
     if let Some(name)=api {
         for i in &p.imports{
             if i.name.eq_ignore_ascii_case(name){
-                targets.push((p.image_base.checked_add(i.rva as u64).ok_or("IAT VA overflow")?,format!("{}!{}",i.dll,i.name)));
+                targets.push(((p.image_base as u64).checked_add(i.rva as u64).ok_or("IAT VA overflow")?,format!("{}!{}",i.dll,i.name)));
             }
         }
         if targets.is_empty(){return Err(format!("API '{name}' not found in PE import table; dynamically resolved calls are not yet tracked"));}
@@ -144,7 +144,7 @@ pub fn xrefs(bytes:&[u8],target_rva:Option<u64>,api:Option<&str>,limit:usize)->R
         for (dest,label) in &targets{
             if direct==Some(*dest)||indirect==Some(*dest){
                 results.push(json!({"target":label,"reference_kind":if direct==Some(*dest){"direct_branch"}else{"ip_relative_memory"},
-                  "evidence":row(ins,p.image_base,offset)}));
+                  "evidence":row(ins,(p.image_base as u64),offset)}));
                 break
             }
         }
@@ -167,7 +167,7 @@ pub fn constants(bytes:&[u8],value:Option<u64>,mnemonic:Option<&str>,limit:usize
         if immediate.is_empty()&&mem.is_none(){return true}
         results.push(json!({"immediates":immediate.iter().map(|v|format!("0x{v:X}")).collect::<Vec<_>>(),
              "memory_displacement":mem.map(|v|format!("0x{v:X}")),
-             "evidence":row(ins,p.image_base,offset)}));
+             "evidence":row(ins,(p.image_base as u64),offset)}));
         results.len()<limit.min(500)
     });
     Ok(json!({"matches":results,"candidate_matches":results.len(),
