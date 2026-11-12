@@ -126,3 +126,16 @@ fn analyze_now_contains_general_evidence(){
     assert!(v["inventory"].is_object());
     fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn decoded_config_is_evidence_and_does_not_expose_secrets(){
+    let path=temp_path("bin");
+    let token="123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi";
+    // Known test token shape only, not a credential. Base64 string generated in this test.
+    let data=base64::Engine::encode(&base64::engine::general_purpose::STANDARD,token);
+    fs::write(&path,data).unwrap();
+    let v=parse(&invoke(&["decode-config","--limit","10"],&path));
+    assert!(v["findings"].as_array().unwrap().iter().any(|f|f["indicator_type"]=="possible_bot_token"
+        && f["decoded_preview"]=="[REDACTED: possible secret]"));
+    fs::remove_file(path).unwrap();
+}
