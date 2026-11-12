@@ -158,11 +158,11 @@ fn timeline(path:&PathBuf,f:&TimeFilter)->Result<Value,String>{
 fn run(cmd:Command)->Result<(),String>{
     match cmd {
         Command::Hash{file,algorithm}=>{
-            let h=hashes(&read(&file)?);
+            let h=hashes(&read(&file.input)?);
             if algorithm=="all"{print(&h)}else if let Some(v)=h.get(&algorithm){println!("{}",v.as_str().unwrap())}else{return Err("algorithm: sha256, sha1, md5, all".into())}
         }
         Command::Pe{file,view}=>{
-            let p=pe_data(&read(&file)?)?;
+            let p=pe_data(&read(&file.input)?)?;
             match view.as_str(){
                 "summary"=>print(&json!({"entry_rva":p["entry_rva"],"timestamp_utc":p["timestamp_utc"],"timestamp_untrusted":true,"is_64":p["is_64"],"sections_count":p["sections"].as_array().unwrap().len(),"imports_count":p["imports"].as_array().unwrap().len()})),
                 "imports"|"sections"=>print(&p[view.as_str()]),
@@ -170,11 +170,11 @@ fn run(cmd:Command)->Result<(),String>{
             }
         }
         Command::Compiler{file}=>{
-            let b=read(&file)?;pe_data(&b)?;
+            let b=read(&file.input)?;pe_data(&b)?;
             print(&json!({"compiler":"INCONCLUSIVE","reason":"Rich Header / compiler fingerprinting not implemented; timestamp alone is insufficient"}));
         }
         Command::Api{file,contains,category,limit}=>{
-            let p=pe_data(&read(&file)?)?;
+            let p=pe_data(&read(&file.input)?)?;
             let keywords=match category.as_deref(){Some("keyboard")=>vec!["key","hook","unicode"],Some("network")=>vec!["http","internet","socket","connect","send"],Some("crypto")=>vec!["crypt","bcrypt"],Some(x)=>return Err(format!("unknown category: {x}")),None=>vec![]};
             let filtered:Vec<Value>=p["imports"].as_array().unwrap().iter().filter(|v|{
                 let n=v["name"].as_str().unwrap_or("").to_ascii_lowercase();
@@ -183,42 +183,42 @@ fn run(cmd:Command)->Result<(),String>{
             }).take(limit).cloned().collect();print(&json!(filtered));
         }
         Command::Offset{file,offset,length}|Command::Hex{file,offset,length}=>{
-            let b=read(&file)?;
+            let b=read(&file.input)?;
             let end=offset.checked_add(length).ok_or("offset overflow")?.min(b.len());
             if offset>b.len(){return Err("offset exceeds file size".into())}
             print(&json!({"file_offset":format!("0x{offset:X}"),"length":end-offset,"hex":hex::encode(&b[offset..end])}));
         }
         Command::Strings{file,contains,regex,ignore_case,min_length,limit}=>{
-            let b=read(&file)?;
+            let b=read(&file.input)?;
             let re=regex.map(|r|Regex::new(&if ignore_case{format!("(?i:{r})")}else{r}).map_err(|e|e.to_string())).transpose()?;
             let out:Vec<Value>=strings(&b,min_length).into_iter().filter(|(_,s)|{
                 contains.as_ref().is_none_or(|needle|if ignore_case{s.to_lowercase().contains(&needle.to_lowercase())}else{s.contains(needle)})&&
                 re.as_ref().is_none_or(|r|r.is_match(s))
             }).take(limit).map(|(o,s)|json!({"offset":format!("0x{o:X}"),"value":s})).collect();print(&json!(out));
         }
-        Command::Ioc{file,limit}=>print(&json!(iocs(&read(&file)?,limit))),
+        Command::Ioc{file,limit}=>print(&json!(iocs(&read(&file.input)?,limit))),
         Command::Keylogger{file,vk_code}=>{
-            let b=read(&file)?;
+            let b=read(&file.input)?;
             let vk=vk_code.as_deref().map(|v|match v.to_ascii_lowercase().as_str(){"0x14"=> "VK_CAPITAL","0x0d"=>"VK_RETURN","0x1b"=>"VK_ESCAPE",_=>"UNKNOWN"});
             print(&json!({"vk_lookup":vk,"keyboard_related_imports":imports_matching(&b,&["key","hook","unicode"]),"behavior":"NOT CONFIRMED by imports alone"}));
         }
         Command::Crypto{file}=>{
-            let b=read(&file)?;
+            let b=read(&file.input)?;
             print(&json!({"crypto_related_imports":imports_matching(&b,&["crypt","bcrypt"]),"algorithm":"INCONCLUSIVE","key":"INCONCLUSIVE"}));
         }
         Command::Exfil{file}=>{
-            let b=read(&file)?;
+            let b=read(&file.input)?;
             print(&json!({"network_related_imports":imports_matching(&b,&["http","internet","socket","connect","send"]),"url_candidates":iocs(&b,50),"exfiltration":"NOT CONFIRMED"}));
         }
         Command::Config{file,show_secrets}=>{
-            let b=read(&file)?;
+            let b=read(&file.input)?;
             let re=Regex::new(r"(?i)(token|secret|api[_-]?key|bot)").unwrap();
             let out:Vec<Value>=strings(&b,4).into_iter().filter(|(_,s)|re.is_match(s)).take(50).map(|(o,s)|{
                 json!({"offset":format!("0x{o:X}"),"candidate":if show_secrets{s}else{"[REDACTED]".into()},"status":"UNVERIFIED"})
             }).collect();print(&json!(out));
         }
         Command::Analyze{file,task,profile}=>{
-            let b=read(&file)?;
+            let b=read(&file.input)?;
             if task.is_some_and(|t|t<1||t>19){return Err("--task must be 1..19".into())}
             let pe=pe_data(&b).ok();
             let result=json!({"file":file.input.display().to_string(),"profile":profile,"task_requested":task,"hashes":hashes(&b),"pe":pe,"url_candidates":iocs(&b,30),"task_answers":"Only evidence-supported fields above; reverse-engineering tasks remain INCONCLUSIVE"});
@@ -227,7 +227,7 @@ fn run(cmd:Command)->Result<(),String>{
             else {print(&result)}
         }
         Command::Report{file,output}=>{
-            let b=read(&file)?;
+            let b=read(&file.input)?;
             let r=json!({"schema_version":1,"input":file.input.display().to_string(),"hashes":hashes(&b),"pe":pe_data(&b).ok(),"ioc_candidates":iocs(&b,100),"limitations":["Static analysis only","No behavioral execution","No keydis-specific decryption or API hash algorithm"]});
             fs::write(&output,serde_json::to_vec_pretty(&r).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
             println!("Saved {}",output.display());
