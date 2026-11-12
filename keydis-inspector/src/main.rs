@@ -1,5 +1,6 @@
 mod reverse;
 mod flow;
+mod capabilities;
 mod intelligence;
 mod deep;
 
@@ -70,6 +71,8 @@ enum Command {
     Constants { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_u64)] value: Option<u64>, #[arg(long)] mnemonic: Option<String>, #[arg(long, default_value_t=50)] limit: usize },
     /// Explore control-flow branches, call sites and argument/constant candidates
     Trace { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_u64)] rva: Option<u64>, #[arg(long, default_value_t=3000)] max_insns: usize, #[arg(long, default_value_t=300)] max_blocks: usize },
+    /// Evidence-based general Windows malware capability classification from call sites
+    Capabilities { #[command(flatten)] file: Input, #[arg(long, default_value_t=100)] max_functions: usize },
     /// Evidence inventory: endpoints, import categories, token candidates and crypto markers
     Intelligence { #[command(flatten)] file: Input, #[arg(long)] show_secrets: bool },
     /// Evidence-backed worksheet of 19 investigation questions
@@ -309,6 +312,9 @@ fn run(cmd:Command)->Result<(),String>{
         }
         Command::Trace{file,rva,max_insns,max_blocks}=>{
             print(&flow::trace(&read(&file.input)?,rva,max_insns,max_blocks)?);
+        }
+        Command::Capabilities{file,max_functions}=>{
+            print(&capabilities::classify(&read(&file.input)?,max_functions)?);
         }
         Command::Intelligence{file,show_secrets}=>{
             print(&intelligence::inventory(&read(&file.input)?,show_secrets)?);
