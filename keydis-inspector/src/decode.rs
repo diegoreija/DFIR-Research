@@ -29,8 +29,8 @@ fn inspect(buf:&[u8])->Option<String>{
 }
 fn collect_string_encoded(bytes:&[u8],findings:&mut Vec<Finding>){
     let text=crate::intelligence::extract_text(bytes);
-    let base64_re=Regex::new(r"(?:[A-Za-z0-9+/]{4}){4,}(?:==|=)?").unwrap();
-    let base64_url_re=Regex::new(r"(?:[A-Za-z0-9_-]{4}){4,}(?:==|=)?").unwrap();
+    let base64_re=Regex::new(r"[A-Za-z0-9+/]{16,}={0,2}").unwrap();
+    let base64_url_re=Regex::new(r"[A-Za-z0-9_-]{16,}={0,2}").unwrap();
     let hex_re=Regex::new(r"(?i)(?:[0-9a-f]{2}){10,}").unwrap();
     for item in text{
         for (method,re) in [("base64",&base64_re),("base64url",&base64_url_re),("hex",&hex_re)]{
