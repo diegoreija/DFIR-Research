@@ -2,7 +2,6 @@ use clap::{Args, Parser, Subcommand};
 use chrono::{DateTime, TimeZone, Utc};
 use goblin::Object;
 use regex::Regex;
-use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sha1::Sha1;
@@ -131,7 +130,7 @@ fn imports_matching(b:&[u8],keywords:&[&str])->Vec<Value>{
     let Ok(pe)=pe_data(b) else{return vec![]};
     pe["imports"].as_array().unwrap().iter().filter(|v|{
         let n=v["name"].as_str().unwrap_or("").to_ascii_lowercase();
-        keywords.iter().any(|k|n.contains(k))
+        keywords.iter().any(|k|n.contains(*k))
     }).cloned().collect()
 }
 fn timeline(path:&PathBuf,f:&TimeFilter)->Result<Value,String>{
@@ -166,7 +165,7 @@ fn run(cmd:Command)->Result<(),String>{
             let p=pe_data(&read(&file)?)?;
             match view.as_str(){
                 "summary"=>print(&json!({"entry_rva":p["entry_rva"],"timestamp_utc":p["timestamp_utc"],"timestamp_untrusted":true,"is_64":p["is_64"],"sections_count":p["sections"].as_array().unwrap().len(),"imports_count":p["imports"].as_array().unwrap().len()})),
-                "imports"|"sections"=>print(&p[&view]),
+                "imports"|"sections"=>print(&p[view.as_str()]),
                 _=>return Err("--view must be summary, imports or sections".into())
             }
         }
@@ -180,7 +179,7 @@ fn run(cmd:Command)->Result<(),String>{
             let filtered:Vec<Value>=p["imports"].as_array().unwrap().iter().filter(|v|{
                 let n=v["name"].as_str().unwrap_or("").to_ascii_lowercase();
                 contains.as_ref().is_none_or(|s|n.contains(&s.to_ascii_lowercase()))&&
-                (keywords.is_empty()||keywords.iter().any(|k|n.contains(k)))
+                (keywords.is_empty()||keywords.iter().any(|k|n.contains(*k)))
             }).take(limit).cloned().collect();print(&json!(filtered));
         }
         Command::Offset{file,offset,length}|Command::Hex{file,offset,length}=>{
@@ -222,14 +221,14 @@ fn run(cmd:Command)->Result<(),String>{
             let b=read(&file)?;
             if task.is_some_and(|t|t<1||t>19){return Err("--task must be 1..19".into())}
             let pe=pe_data(&b).ok();
-            let result=json!({"file":file,"profile":profile,"task_requested":task,"hashes":hashes(&b),"pe":pe,"url_candidates":iocs(&b,30),"task_answers":"Only evidence-supported fields above; reverse-engineering tasks remain INCONCLUSIVE"});
+            let result=json!({"file":file.input.display().to_string(),"profile":profile,"task_requested":task,"hashes":hashes(&b),"pe":pe,"url_candidates":iocs(&b,30),"task_answers":"Only evidence-supported fields above; reverse-engineering tasks remain INCONCLUSIVE"});
             if task==Some(1){println!("{}",result["hashes"]["sha256"].as_str().unwrap())}
             else if task==Some(2){print(&result["pe"]["timestamp_utc"])}
             else {print(&result)}
         }
         Command::Report{file,output}=>{
             let b=read(&file)?;
-            let r=json!({"schema_version":1,"input":file,"hashes":hashes(&b),"pe":pe_data(&b).ok(),"ioc_candidates":iocs(&b,100),"limitations":["Static analysis only","No behavioral execution","No keydis-specific decryption or API hash algorithm"]});
+            let r=json!({"schema_version":1,"input":file.input.display().to_string(),"hashes":hashes(&b),"pe":pe_data(&b).ok(),"ioc_candidates":iocs(&b,100),"limitations":["Static analysis only","No behavioral execution","No keydis-specific decryption or API hash algorithm"]});
             fs::write(&output,serde_json::to_vec_pretty(&r).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
             println!("Saved {}",output.display());
         }
