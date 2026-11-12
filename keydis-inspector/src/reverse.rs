@@ -164,7 +164,7 @@ pub fn constants(bytes:&[u8],value:Option<u64>,mnemonic:Option<&str>,limit:usize
         let immediate:Vec<u64>=(0..ins.op_count()).filter_map(|n|ins.try_immediate(n).ok()).collect();
         let mem=if ins.memory_displ_size()>0{Some(ins.memory_displacement64())}else{None};
         if value.is_some_and(|v|!immediate.contains(&v)&&mem!=Some(v)){return true}
-        if immediate.is_empty()&&mem.is_none(){return true}
+        if immediate.is_empty()&&mem.is_none()&&mnemonic.is_none(){return true}
         results.push(json!({"immediates":immediate.iter().map(|v|format!("0x{v:X}")).collect::<Vec<_>>(),
              "memory_displacement":mem.map(|v|format!("0x{v:X}")),
              "evidence":row(ins,(p.image_base as u64),offset)}));
