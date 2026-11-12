@@ -1,3 +1,5 @@
+mod reverse;
+
 use clap::{Args, Parser, Subcommand};
 use chrono::{DateTime, TimeZone, Utc};
 use goblin::Object;
@@ -53,6 +55,14 @@ enum Command {
     Timeline { #[command(flatten)] file: Input, #[command(flatten)] filter: TimeFilter },
     /// Filter JSONL forensic events
     Events { #[command(flatten)] file: Input, #[command(flatten)] filter: TimeFilter },
+    /// Disassemble executable PE code from entrypoint or specified RVA
+    Disasm { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_u64)] rva: Option<u64>, #[arg(long, default_value_t=40)] count: usize },
+    /// Heuristic function start candidates (entrypoint and direct call targets)
+    Functions { #[command(flatten)] file: Input, #[arg(long, default_value_t=50)] limit: usize },
+    /// Cross-references from code to an RVA or imported API
+    Xref { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_u64, conflicts_with="api")] target_rva: Option<u64>, #[arg(long)] api: Option<String>, #[arg(long, default_value_t=50)] limit: usize },
+    /// Inspect immediates and displacements, including XOR candidates
+    Constants { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_u64)] value: Option<u64>, #[arg(long)] mnemonic: Option<String>, #[arg(long, default_value_t=50)] limit: usize },
     /// Compare two files by hashes and PE import names
     Compare { #[arg(long)] file_a: PathBuf, #[arg(long)] file_b: PathBuf },
 }
@@ -74,6 +84,11 @@ struct TimeFilter {
     limit: usize,
     #[arg(long, default_value="asc")]
     sort: String,
+}
+fn parse_u64(s: &str) -> Result<u64,String> {
+    if let Some(x)=s.strip_prefix("0x").or_else(||s.strip_prefix("0X")) {
+        u64::from_str_radix(x,16).map_err(|e|e.to_string())
+    } else { s.parse::<u64>().map_err(|e|e.to_string()) }
 }
 fn parse_num(s: &str) -> Result<usize,String> {
     if let Some(x)=s.strip_prefix("0x").or_else(||s.strip_prefix("0X")) {
@@ -170,8 +185,7 @@ fn run(cmd:Command)->Result<(),String>{
             }
         }
         Command::Compiler{file}=>{
-            let b=read(&file.input)?;pe_data(&b)?;
-            print(&json!({"compiler":"INCONCLUSIVE","reason":"Rich Header / compiler fingerprinting not implemented; timestamp alone is insufficient"}));
+            print(&reverse::compiler(&read(&file.input)?)?);
         }
         Command::Api{file,contains,category,limit}=>{
             let p=pe_data(&read(&file.input)?)?;
@@ -233,6 +247,18 @@ fn run(cmd:Command)->Result<(),String>{
             println!("Saved {}",output.display());
         }
         Command::Timeline{file,filter}|Command::Events{file,filter}=>print(&timeline(&file.input,&filter)?),
+        Command::Disasm{file,rva,count}=>{
+            print(&reverse::disasm(&read(&file.input)?,rva,count)?);
+        }
+        Command::Functions{file,limit}=>{
+            print(&reverse::function_candidates(&read(&file.input)?,limit)?);
+        }
+        Command::Xref{file,target_rva,api,limit}=>{
+            print(&reverse::xrefs(&read(&file.input)?,target_rva,api.as_deref(),limit)?);
+        }
+        Command::Constants{file,value,mnemonic,limit}=>{
+            print(&reverse::constants(&read(&file.input)?,value,mnemonic.as_deref(),limit)?);
+        }
         Command::Compare{file_a,file_b}=>{
             let a=read(&file_a)?;let b=read(&file_b)?;
             let pa=pe_data(&a).ok();let pb=pe_data(&b).ok();
