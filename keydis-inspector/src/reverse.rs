@@ -278,3 +278,48 @@ mod fixture_tests {
         assert_eq!(x["references"][0]["evidence"]["rva"],"0x1005");
     }
 }
+
+/// Resolve candidate API names under explicitly stated hash algorithms.
+/// A match does not prove which algorithm or DLL the malware actually uses.
+pub fn api_hash(target:u64,algorithm:&str, dictionary:&str,case_mode:&str)->Result<Value,String>{
+    if target>u32::MAX as u64{return Err("Hash must fit in a 32-bit unsigned integer".into());}
+    if !["all","ror13-add","djb2","fnv1a"].contains(&algorithm){return Err("algorithm: all, ror13-add, djb2, fnv1a".into());}
+    if !["original","lower","upper"].contains(&case_mode){return Err("case: original, lower, upper".into());}
+    let values=std::fs::read_to_string(dictionary).map_err(|e|format!("Cannot read dictionary: {e}"))?;
+    let mut checked=0usize;
+    let mut results=Vec::new();
+    let algos=if algorithm=="all"{vec!["ror13-add","djb2","fnv1a"]}else{vec![algorithm]};
+    for line in values.lines(){
+        let name=line.trim();
+        if name.is_empty()||name.starts_with('#'){continue}
+        let n=match case_mode {"upper"=>name.to_ascii_uppercase(),"lower"=>name.to_ascii_lowercase(),_=>name.to_string()};
+        for a in &algos{
+            let hash=hash_api(n.as_bytes(),a);
+            checked+=1;
+            if hash as u64==target{
+                results.push(json!({"name":name,"algorithm":a,"case_mode":case_mode,"computed_hash":format!("0x{hash:08X}")}));
+            }
+        }
+    }
+    Ok(json!({"target_hash":format!("0x{target:08X}"),"dictionary":dictionary,
+        "candidates":results,"hashes_checked":checked,
+        "warning":"Matches depend on name spelling, case, dictionary and algorithm. No algorithm has been recovered from the malware."}))
+}
+fn hash_api(input:&[u8],algorithm:&str)->u32{
+    match algorithm {
+        "ror13-add"=>input.iter().fold(0u32,|h,&b|h.rotate_right(13).wrapping_add(b as u32)),
+        "djb2"=>input.iter().fold(5381u32,|h,&b|h.wrapping_mul(33).wrapping_add(b as u32)),
+        "fnv1a"=>input.iter().fold(0x811c9dc5u32,|h,&b|(h^(b as u32)).wrapping_mul(0x01000193)),
+        _=>0
+    }
+}
+#[cfg(test)]
+mod hash_tests {
+    use super::*;
+    #[test]fn known_djb2(){
+        assert_eq!(hash_api(b"test","djb2"),0x7c9e6865);
+    }
+    #[test]fn known_fnv1a(){
+        assert_eq!(hash_api(b"hello","fnv1a"),0x4f9f2cab);
+    }
+}
