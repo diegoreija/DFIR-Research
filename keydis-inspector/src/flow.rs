@@ -121,7 +121,7 @@ fn import_slot(pe:&PE<'_>,address:u64)->Option<(String,String)>{
     let base=pe.image_base as u64;
     pe.imports.iter()
         .find(|i|base.checked_add(i.rva as u64)==Some(address))
-        .map(|i|(i.dll.to_owned(),i.name.to_owned()))
+        .map(|i|(i.dll.to_owned(),i.name.to_string()))
 }
 fn call_target(ins:&Instruction,s:&State)->Option<(u64,&'static str)>{
     if let Some(va)=branch_target(ins){return Some((va,"direct_call"))}
