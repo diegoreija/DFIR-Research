@@ -174,19 +174,80 @@ Ejemplo de consulta selectiva:
 keydis-inspector strings --input sample.exe --contains http --limit 5
 ```
 
+## Ingeniería inversa de ejecutables PE
+
+Los comandos de esta sección **leen el archivo, no lo ejecutan**. Admiten ejecutables PE x86 y x64.
+
+### Desensamblar
+
+```bash
+keydis-inspector disasm --input sample.exe --count 30
+keydis-inspector disasm --input sample.exe --rva 0x1400 --count 50
+```
+
+Las salidas JSON incluyen instrucciones, RVA, VA, offset de archivo, longitud y destinos de control cuando se identifican. `--rva` significa dirección relativa a la imagen PE, **no** offset de archivo.
+
+### Candidatos a funciones y referencias
+
+```bash
+keydis-inspector functions --input sample.exe --limit 30
+keydis-inspector xref --input sample.exe --api GetAsyncKeyState
+keydis-inspector xref --input sample.exe --target-rva 0x1400 --limit 20
+keydis-inspector api --input sample.exe --category keyboard --show-references
+```
+
+`functions` combina el punto de entrada con los destinos de llamadas directas. `xref` busca referencias directas y algunas referencias a la IAT mediante RIP-relative. Ninguno de los dos demuestra por sí solo límites de funciones ni rastrea todas las llamadas indirectas.
+
+### Constantes y operaciones
+
+```bash
+keydis-inspector constants --input sample.exe --value 0x14 --limit 20
+keydis-inspector constants --input sample.exe --value 0x104
+keydis-inspector constants --input sample.exe --mnemonic xor --limit 30
+keydis-inspector keylogger --input sample.exe --vk-code 0x14
+keydis-inspector crypto --input sample.exe
+```
+
+Se imprimen las instrucciones y las evidencias que respaldan cada coincidencia. No se atribuyen automáticamente claves ni algoritmos de cifrado.
+
+### Hashes candidatos de API
+
+Para probar nombres contra algoritmos conocidos, prepara un diccionario local:
+
+```bash
+printf 'GetAsyncKeyState\nSetWindowsHookExA\nToUnicodeEx\n' > winapi-names.txt
+
+keydis-inspector api-hash --hash 0x28331FE9 \
+  --dictionary winapi-names.txt --algorithm all
+
+keydis-inspector api-hash --hash 0x28331FE9 \
+  --dictionary winapi-names.txt --algorithm ror13-add --case-mode upper
+```
+
+Algoritmos: `ror13-add`, `djb2`, `fnv1a`. Se comprueban coincidencias de diccionario, **no se demuestra qué algoritmo utiliza el ejecutable**. Es necesario estudiar la rutina real.
+
+## Validación
+
+```bash
+cargo test --all-targets
+cargo build --release
+./target/release/keydis-inspector --help
+```
+
+Las pruebas utilizan instrucciones benignas y un PE sintético; también se ejecutan automáticamente mediante GitHub Actions.
+
 ## Límites actuales
 
-- No ejecuta muestras ni realiza análisis dinámico.
-- No desensambla funciones ni reconstruye el flujo de control.
-- No identifica todavía algoritmos de hashes de API, claves criptográficas o descifrados específicos.
-- No analiza EVTX, PCAP o archivos comprimidos directamente.
-- Los timestamps de PE pueden estar manipulados.
-- Los indicadores encontrados son candidatos, no confirmaciones de actividad maliciosa.
-- No se ha verificado todavía la compilación mediante CI ni la ejecución con muestras reales.
+- El desensamblado lineal puede confundir datos insertados en código con instrucciones.
+- Los candidatos a funciones y las referencias cruzadas son heurísticos; no hay aún recuperación completa de flujo de control ni propagación de argumentos.
+- El reconocimiento de compilador usa indicios, pero no garantiza una atribución.
+- No se identifican automáticamente algoritmos, claves, tokens cifrados, hashes de API personalizados o exfiltración confirmada.
+- El análisis de tiempo sigue exigiendo JSONL normalizado; no hay parser EVTX/PCAP nativo.
+- No se ejecuta malware y no se ha validado todavía frente a todas las familias o muestras reales.
 
 ## Próximas mejoras
 
-Pruebas automatizadas, desensamblado y referencias a evidencia, identificación de compiladores, resolución de hashes de APIs, parsers EVTX/PCAP, reglas YARA, inspección de archivos comprimidos y filtros adicionales.
+Análisis interprocedimental de flujo de datos, llamadas indirectas, recuperación de algoritmos de hashing, detección y descifrado de configuraciones, EVTX/PCAP, YARA y pruebas con muestras de referencia.
 
 ## Seguridad
 
