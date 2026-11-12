@@ -1,6 +1,7 @@
 mod reverse;
 mod flow;
 mod capabilities;
+mod decode;
 mod intelligence;
 mod deep;
 
@@ -71,6 +72,8 @@ enum Command {
     Constants { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_u64)] value: Option<u64>, #[arg(long)] mnemonic: Option<String>, #[arg(long, default_value_t=50)] limit: usize },
     /// Explore control-flow branches, call sites and argument/constant candidates
     Trace { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_u64)] rva: Option<u64>, #[arg(long, default_value_t=3000)] max_insns: usize, #[arg(long, default_value_t=300)] max_blocks: usize },
+    /// Recover encoded or single-byte-XOR hidden configuration indicators
+    DecodeConfig { #[command(flatten)] file: Input, #[arg(long, default_value_t=30)] limit: usize, #[arg(long)] show_secrets: bool },
     /// Evidence-based general Windows malware capability classification from call sites
     Capabilities { #[command(flatten)] file: Input, #[arg(long, default_value_t=100)] max_functions: usize },
     /// Evidence inventory: endpoints, import categories, token candidates and crypto markers
@@ -285,6 +288,7 @@ fn run(cmd:Command)->Result<(),String>{
                 "compiler_evidence":reverse::compiler(&b).ok(),
                 "inventory":intelligence::inventory(&b,false).ok(),
                 "capability_evidence":capabilities::classify(&b,60).ok(),
+                "encoded_config_candidates":decode::scan(&b,30,false),
                 "limitations":["Static evidence; a referenced API does not prove behavior",
                     "Function calls, dynamic loading and cryptographic algorithms may require deeper analysis"]});
             if let Some(n)=task {
@@ -299,6 +303,7 @@ fn run(cmd:Command)->Result<(),String>{
             let capabilities=capabilities::classify(&b,100).ok();
             let r=json!({"schema_version":3,"input":file.input.display().to_string(),
                 "inventory":inventory,"capability_evidence":capabilities,
+                "encoded_config_candidates":decode::scan(&b,50,false),
                 "compiler_evidence":reverse::compiler(&b).ok(),"worksheet":worksheet,
                 "limitations":["Static evidence only","Some questions require codeflow and runtime validation",
                                "Inconclusive means there is no verified answer"]});
@@ -320,6 +325,9 @@ fn run(cmd:Command)->Result<(),String>{
         }
         Command::Trace{file,rva,max_insns,max_blocks}=>{
             print(&flow::trace(&read(&file.input)?,rva,max_insns,max_blocks)?);
+        }
+        Command::DecodeConfig{file,limit,show_secrets}=>{
+            print(&decode::scan(&read(&file.input)?,limit,show_secrets));
         }
         Command::Capabilities{file,max_functions}=>{
             print(&capabilities::classify(&read(&file.input)?,max_functions)?);
