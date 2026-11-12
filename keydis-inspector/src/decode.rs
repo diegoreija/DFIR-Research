@@ -16,7 +16,7 @@ fn token_re()->Regex{Regex::new(r"\b[0-9]{6,12}:[A-Za-z0-9_-]{30,60}\b").unwrap(
 struct Finding {offset:usize,method:String,key:Option<String>,decoded:Vec<u8>,indicator:String}
 fn inspect(buf:&[u8])->Option<String>{
     if buf.len()<8||buf.len()>MAX_SEGMENT{return None}
-    let decoded=String::from_utf8(buf).ok()?;
+    let decoded=std::str::from_utf8(buf).ok()?;
     if decoded.chars().any(|c|c=='\u{FFFD}'){return None}
     if token_re().is_match(&decoded){return Some("possible_bot_token".into())}
     if url_re().is_match(&decoded){return Some("decoded_url".into())}
@@ -99,12 +99,13 @@ pub fn scan(bytes:&[u8],limit:usize,show_secrets:bool)->Value{
         total+=1;
         if out.len()>=limit.min(MAX_RESULTS){continue}
         let sha=format!("{:x}",Sha256::digest(&candidate.decoded));
+        let preview=public_preview(&candidate,show_secrets);
         out.push(json!({
             "file_offset":format!("0x{:X}",candidate.offset),
             "method":candidate.method,
             "xor_key_hex":if show_secrets{candidate.key}else{None},
             "indicator_type":candidate.indicator,
-            "decoded_preview":public_preview(&candidate,show_secrets),
+            "decoded_preview":preview,
             "decoded_sha256":sha,
             "confidence":"validated_format_candidate_not_verified_use"
         }));
