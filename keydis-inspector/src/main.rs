@@ -280,7 +280,13 @@ fn run(cmd:Command)->Result<(),String>{
             let b=read(&file.input)?;
             if task.is_some_and(|t|t<1||t>19){return Err("--task must be 1..19".into())}
             let pe=pe_data(&b).ok();
-            let result=json!({"file":file.input.display().to_string(),"profile":profile,"task_requested":task,"hashes":hashes(&b),"pe":pe,"url_candidates":iocs(&b,30),"task_answers":"Only evidence-supported fields above; reverse-engineering tasks remain INCONCLUSIVE"});
+            let result=json!({"file":file.input.display().to_string(),"profile":profile,
+                "hashes":hashes(&b),"pe":pe,
+                "compiler_evidence":reverse::compiler(&b).ok(),
+                "inventory":intelligence::inventory(&b,false).ok(),
+                "capability_evidence":capabilities::classify(&b,60).ok(),
+                "limitations":["Static evidence; a referenced API does not prove behavior",
+                    "Function calls, dynamic loading and cryptographic algorithms may require deeper analysis"]});
             if let Some(n)=task {
                 let worksheet=intelligence::worksheet(&b,Some(n),false)?;
                 print(&worksheet);
@@ -290,8 +296,10 @@ fn run(cmd:Command)->Result<(),String>{
             let b=read(&file.input)?;
             let inventory=intelligence::inventory(&b,false)?;
             let worksheet=intelligence::worksheet(&b,None,false)?;
-            let r=json!({"schema_version":2,"input":file.input.display().to_string(),
-                "inventory":inventory,"worksheet":worksheet,
+            let capabilities=capabilities::classify(&b,100).ok();
+            let r=json!({"schema_version":3,"input":file.input.display().to_string(),
+                "inventory":inventory,"capability_evidence":capabilities,
+                "compiler_evidence":reverse::compiler(&b).ok(),"worksheet":worksheet,
                 "limitations":["Static evidence only","Some questions require codeflow and runtime validation",
                                "Inconclusive means there is no verified answer"]});
             fs::write(&output,serde_json::to_vec_pretty(&r).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
