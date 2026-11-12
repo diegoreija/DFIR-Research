@@ -100,3 +100,29 @@ fn deep_find_works_without_ghidra_installed(){
     let v=parse(&out);assert_eq!(v["matched_functions"],1);
     fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn new_trace_returns_call_arguments_and_edges(){
+    let path=temp_path("exe");fs::write(&path,benign_pe()).unwrap();
+    let v=parse(&invoke(&["trace","--max-insns","30","--max-blocks","10"],&path));
+    assert_eq!(v["start_rva"],"0x1000");
+    assert!(v["call_sites"].as_array().unwrap().len()>=1);
+    fs::remove_file(path).unwrap();
+}
+#[test]
+fn generic_capability_command_does_not_hardcode_a_malware_label(){
+    let path=temp_path("exe");fs::write(&path,benign_pe()).unwrap();
+    let v=parse(&invoke(&["capabilities","--max-functions","10"],&path));
+    assert_eq!(v["matched_calls"],0);
+    assert!(v["correlations"].as_array().unwrap().is_empty());
+    fs::remove_file(path).unwrap();
+}
+#[test]
+fn analyze_now_contains_general_evidence(){
+    let path=temp_path("exe");fs::write(&path,benign_pe()).unwrap();
+    let v=parse(&invoke(&["analyze"],&path));
+    assert!(v["compiler_evidence"].is_object());
+    assert!(v["capability_evidence"].is_object());
+    assert!(v["inventory"].is_object());
+    fs::remove_file(path).unwrap();
+}
