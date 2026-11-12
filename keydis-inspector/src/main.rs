@@ -307,7 +307,7 @@ mod cli_unit_tests {
         assert_eq!(result["md5"],"900150983cd24fb0d6963f7d28e17f72");
     }
     #[test]fn extracts_ascii_and_utf16le(){
-        let b=b"prefix\0HTTP\0\x54\x00\x45\x00\x53\x00\x54\x00\0";
+        let b=b"prefix\0HTTP\0\0\x54\x00\x45\x00\x53\x00\x54\x00\0";
         let got=strings(b,4);
         assert!(got.iter().any(|(_,s)|s=="HTTP"));
         assert!(got.iter().any(|(_,s)|s=="TEST"));
