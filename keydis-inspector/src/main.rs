@@ -1,4 +1,5 @@
 mod reverse;
+mod intelligence;
 
 use clap::{Args, Parser, Subcommand};
 use chrono::{DateTime, TimeZone, Utc};
@@ -65,6 +66,14 @@ enum Command {
     Xref { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_u64, conflicts_with="api")] target_rva: Option<u64>, #[arg(long)] api: Option<String>, #[arg(long, default_value_t=50)] limit: usize },
     /// Inspect immediates and displacements, including XOR candidates
     Constants { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_u64)] value: Option<u64>, #[arg(long)] mnemonic: Option<String>, #[arg(long, default_value_t=50)] limit: usize },
+    /// Evidence inventory: endpoints, import categories, token candidates and crypto markers
+    Intelligence { #[command(flatten)] file: Input, #[arg(long)] show_secrets: bool },
+    /// Evidence-backed worksheet of 19 investigation questions
+    Tasks { #[command(flatten)] file: Input, #[arg(long)] task: Option<u8>, #[arg(long)] show_secrets: bool },
+    /// Recover candidate repeating-XOR keys using explicitly supplied known plaintext
+    XorCrib { #[command(flatten)] file: Input, #[arg(long)] known: String, #[arg(long, default_value_t=8)] max_keylen: usize, #[arg(long, default_value_t=10)] limit: usize, #[arg(long)] show_secrets: bool },
+    /// Decode a file region using a known repeating XOR key, supplied as hexadecimal bytes
+    XorDecode { #[command(flatten)] file: Input, #[arg(long, value_parser=parse_num)] offset: usize, #[arg(long, default_value_t=128)] length: usize, #[arg(long)] key_hex: String, #[arg(long)] show_secrets: bool },
     /// Compare two files by hashes and PE import names
     Compare { #[arg(long)] file_a: PathBuf, #[arg(long)] file_b: PathBuf },
 }
@@ -261,13 +270,19 @@ fn run(cmd:Command)->Result<(),String>{
             if task.is_some_and(|t|t<1||t>19){return Err("--task must be 1..19".into())}
             let pe=pe_data(&b).ok();
             let result=json!({"file":file.input.display().to_string(),"profile":profile,"task_requested":task,"hashes":hashes(&b),"pe":pe,"url_candidates":iocs(&b,30),"task_answers":"Only evidence-supported fields above; reverse-engineering tasks remain INCONCLUSIVE"});
-            if task==Some(1){println!("{}",result["hashes"]["sha256"].as_str().unwrap())}
-            else if task==Some(2){print(&result["pe"]["timestamp_utc"])}
-            else {print(&result)}
+            if let Some(n)=task {
+                let worksheet=intelligence::worksheet(&b,Some(n),false)?;
+                print(&worksheet);
+            } else {print(&result)}
         }
         Command::Report{file,output}=>{
             let b=read(&file.input)?;
-            let r=json!({"schema_version":1,"input":file.input.display().to_string(),"hashes":hashes(&b),"pe":pe_data(&b).ok(),"ioc_candidates":iocs(&b,100),"limitations":["Static analysis only","No behavioral execution","No keydis-specific decryption or API hash algorithm"]});
+            let inventory=intelligence::inventory(&b,false)?;
+            let worksheet=intelligence::worksheet(&b,None,false)?;
+            let r=json!({"schema_version":2,"input":file.input.display().to_string(),
+                "inventory":inventory,"worksheet":worksheet,
+                "limitations":["Static evidence only","Some questions require codeflow and runtime validation",
+                               "Inconclusive means there is no verified answer"]});
             fs::write(&output,serde_json::to_vec_pretty(&r).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
             println!("Saved {}",output.display());
         }
@@ -283,6 +298,18 @@ fn run(cmd:Command)->Result<(),String>{
         }
         Command::Constants{file,value,mnemonic,limit}=>{
             print(&reverse::constants(&read(&file.input)?,value,mnemonic.as_deref(),limit)?);
+        }
+        Command::Intelligence{file,show_secrets}=>{
+            print(&intelligence::inventory(&read(&file.input)?,show_secrets)?);
+        }
+        Command::Tasks{file,task,show_secrets}=>{
+            print(&intelligence::worksheet(&read(&file.input)?,task,show_secrets)?);
+        }
+        Command::XorCrib{file,known,max_keylen,limit,show_secrets}=>{
+            print(&intelligence::xor_crib(&read(&file.input)?,&known,max_keylen,limit,show_secrets)?);
+        }
+        Command::XorDecode{file,offset,length,key_hex,show_secrets}=>{
+            print(&intelligence::xor_decode(&read(&file.input)?,offset,length,&key_hex,show_secrets)?);
         }
         Command::Compare{file_a,file_b}=>{
             let a=read(&file_a)?;let b=read(&file_b)?;
