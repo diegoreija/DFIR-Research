@@ -1,0 +1,21 @@
+name: KeyDis Inspector CI
+on:
+  push:
+    paths:
+      - 'keydis-inspector/**'
+      - '.github/workflows/keydis-inspector.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: keydis-inspector
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile and run tests
+        run: cargo test --all-targets
+      - name: Build release binary
+        run: cargo build --release
