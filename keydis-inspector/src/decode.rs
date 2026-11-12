@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 const MAX_INPUT:usize=16*1024*1024;
 const MAX_SEGMENT:usize=4096;
 const MAX_RESULTS:usize=100;
-fn url_re()->Regex{Regex::new(r"(?i)https?://[a-z0-9][a-z0-9._-]{2,}(?::[0-9]{2,5})?(?:/[^[:space:]\"'<>]*)?").unwrap()}
+fn url_re()->Regex{Regex::new(r#"(?i)https?://[a-z0-9][a-z0-9._-]{2,}(?::[0-9]{2,5})?(?:/[^\s"'<>]*)?"#).unwrap()}
 fn token_re()->Regex{Regex::new(r"\b[0-9]{6,12}:[A-Za-z0-9_-]{30,60}\b").unwrap()}
 
 #[derive(Clone)]
