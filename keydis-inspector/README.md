@@ -249,6 +249,97 @@ Las pruebas utilizan instrucciones benignas y un PE sintético; también se ejec
 
 Análisis interprocedimental de flujo de datos, llamadas indirectas, recuperación de algoritmos de hashing, detección y descifrado de configuraciones, EVTX/PCAP, YARA y pruebas con muestras de referencia.
 
+
+## Flujo de investigación completo (CLI)
+
+Esta CLI separa **hallazgos comprobados** y **candidatos**. No atribuye un algoritmo, una clave ni la funcionalidad de una muestra solo por encontrar una constante o una cadena.
+
+### 1. Inventario inicial
+
+```bash
+keydis-inspector intelligence --input sample.exe
+keydis-inspector tasks --input sample.exe
+keydis-inspector tasks --input sample.exe --task 6
+keydis-inspector analyze --input sample.exe --task 10
+```
+
+`intelligence` identifica hashes, fecha COFF, imports relacionados con teclado y red, URLs, candidatos de plataforma, posibles tokens en texto claro y firmas criptográficas básicas.
+
+`tasks` construye una hoja estructurada de 19 preguntas de investigación con cuatro posibles estados: valores verificados, metadatos observados, candidatos o información inconclusa. **No garantiza respuestas automáticas** cuando el binario requiere ingeniería inversa semántica.
+
+Para candidatos a tokens, el valor se oculta por defecto. Solo para investigación autorizada:
+
+```bash
+keydis-inspector tasks --input sample.exe --task 16 --show-secrets
+```
+
+### 2. Recuperación de posibles claves XOR
+
+```bash
+keydis-inspector xor-crib --input sample.exe \
+  --known "https://api.telegram.org" --max-keylen 8 --limit 10
+
+# Examinar explícitamente una región con una clave XOR conocida
+keydis-inspector xor-decode --input sample.exe \
+  --offset 0x1400 --length 100 --key-hex 4142 --show-secrets
+```
+
+`xor-crib` busca candidatos a clave de XOR repetido a partir de un texto conocido. No es un ataque universal contra cifrados, y los resultados pueden ser falsos positivos. Los secretos recuperados no se muestran sin `--show-secrets`. Los offsets de `xor-decode` son **offsets de fichero**.
+
+### 3. Análisis profundo opcional con Ghidra (sin interfaz gráfica)
+
+Para reconstruir funciones complejas, argumentos y operaciones de descifrado existe el backend opcional de **Ghidra Headless**. Instala Ghidra por separado y localiza su ejecutable `support/analyzeHeadless`. No hace falta abrir la interfaz gráfica.
+
+```bash
+keydis-inspector deep --input sample.exe \
+  --output deep-report.json \
+  --analyze-headless /opt/ghidra/support/analyzeHeadless \
+  --max-functions 200 \
+  --analysis-timeout 180
+```
+
+Ghidra **importa y descompila el fichero; no lo ejecuta**. El informe puede contener cadenas sensibles o tokens: no lo publiques sin revisarlo. El análisis profundo depende de disponer de una instalación de Ghidra compatible y no se valida en la CI de Rust.
+
+Una vez generado el JSON puedes buscar en el código descompilado sin usar `grep`:
+
+```bash
+keydis-inspector deep-find --report deep-report.json \
+  --contains "0x104" --before 3 --after 5
+
+keydis-inspector deep-find --report deep-report.json \
+  --contains "ToUnicodeEx" --limit 20
+
+keydis-inspector deep-find --report deep-report.json \
+  --contains "0x28331FE9"
+```
+
+También puedes asociar **funciones candidatas** a las preguntas pendientes:
+
+```bash
+keydis-inspector tasks --input sample.exe \
+  --deep-report deep-report.json
+
+keydis-inspector tasks --input sample.exe \
+  --task 17 --deep-report deep-report.json
+```
+
+Los fragmentos de código descompilado no se transforman automáticamente en respuestas confirmadas. La investigación sigue requiriendo comprobar el flujo de ejecución y los datos.
+
+### 4. Exportación
+
+```bash
+keydis-inspector report --input sample.exe --output evidence.json
+```
+
+Guarda inventario y hoja de investigación en un JSON estructurado.
+
+### Limitaciones fundamentales
+
+- No existe un método universal de análisis estático que identifique automáticamente cualquier algoritmo criptográfico, clave, llamada indirecta o dato cifrado de un binario desconocido.
+- Para afirmar que un token es válido, que una API es la función ejecutada o que un valor causa una transmisión hay que seguir sus referencias y, cuando sea necesario, analizarlo dinámicamente en un entorno aislado.
+- Sin disponer de una muestra concreta para contrastar, solo pueden verificarse tests con archivos sintéticos y las propiedades de los algoritmos implementados.
+- El backend de Ghidra es opcional; los comandos nativos de Rust no lo necesitan.
+
 ## Seguridad
 
 Analiza muestras sospechosas únicamente en entornos autorizados y aislados. No ejecutes archivos desconocidos en tu equipo de trabajo.
